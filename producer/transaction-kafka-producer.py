@@ -38,7 +38,7 @@ def get_event_time(card_id):
     return datetime.utcnow()
 
 
-def generate_id():
+def generate_ip():
     return ".".join(str(random.randint(1, 245)) for _ in range(4))  # anonymous loop
 
 
@@ -61,3 +61,38 @@ def generate_transaction():
     amount = round(random.uniform(20, 300), 2)
     category = random.choice(list(merchant_categories.keys()))
     merchant = random.choice(merchant_categories[category])
+    
+    if fraud_type == "CARD_TESTING":
+        amount = round(random.uniform(1, 5), 2)
+        
+    elif fraud_type == "VELOCITY":
+        amount = round(random.uniform(80, 200), 2)
+        
+    elif fraud_type == "IMPOSSIBLE_TRAVEL":
+        if card_id in last_card_activity:
+            prev_loc = last_card_activity[card_id]["location"]
+            location = random.choice([l for l in locations if l != prev_loc])
+            now = last_card_activity[card_id]["time"] + timedelta(seconds=90)
+            
+    transaction = {
+        "schema_version": "1.0",
+        "transaction_id": fake.uuid4(),
+        "event_id": generate_event_id(),
+        "customer_id": customer,
+        "card_id": card_id,
+        "merchant_id": merchant.replace(" ", "_").lower(),
+        "merchant_category": category,
+        "amount": amount,
+        "currency": "USD",
+        "ip_address": generate_ip(),
+        "location": location,
+        "event_type": fraud_type,
+        "timestamp": now.replace(microsecond=0).isoformat() + "Z"
+    }
+
+    last_card_activity[card_id] = {
+        "location": location,
+        "time": now
+    }
+
+    return transaction, fraud_type
