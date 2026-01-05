@@ -1,0 +1,92 @@
+
+services:
+  jobmanager:
+    build: .
+    container_name: flink-jobmanager
+    ports:
+      - "8087:8081"
+    environment:
+      PYTHON_WORKER_MEMORY_LIMIT: 1g
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 20
+        jobmanager.memory.process.size: 2g
+
+    command: jobmanager
+    volumes:
+      - ./jobs:/opt/flink/jobs
+      - ./output:/opt/flink/output
+      - ./custom_lib:/opt/flink/custom_lib
+      - ./flink-checkpoints:/opt/flink/checkpoints
+    networks:
+      - main-bridge
+    restart: unless-stopped
+
+  taskmanager:
+    build: .
+    container_name: flink-taskmanager
+    depends_on:
+      - jobmanager
+    environment:
+      PYTHON_WORKER_MEMORY_LIMIT: 1g
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 20
+        taskmanager.memory.process.size: 2g
+    command: taskmanager
+    volumes:
+      - ./jobs:/opt/flink/jobs
+      - ./output:/opt/flink/output
+      - ./custom_lib:/opt/flink/custom_lib
+      - ./flink-checkpoints:/opt/flink/checkpoints
+    networks:
+      - main-bridge
+    restart: unless-stopped
+
+  sql-client:
+    build: .
+    container_name: flink-sql-client
+    depends_on:
+      - jobmanager
+    entrypoint: bin/sql-client.sh
+    networks:
+      - main-bridge
+    restart: unless-stopped
+
+  broker:
+    image: confluentinc/cp-server:8.0.0
+    hostname: broker2
+    container_name: broker2
+    ports:
+      - "9094:9094"
+      - "9110:9110"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://broker2:29094,PLAINTEXT_HOST://localhost:9094'
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_CONFLUENT_LICENSE_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CONFLUENT_METADATA_TOPIC_REPLICATION_FACTOR: 1  
+      KAFKA_CONFLUENT_BALANCER_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      KAFKA_JMX_PORT: 9110
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@broker2:29095'
+      KAFKA_LISTENERS: 'PLAINTEXT://broker2:29094,CONTROLLER://broker2:29095,PLAINTEXT_HOST://0.0.0.0:9094'
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      CLUSTER_ID: ''  # valid base64 UUID
+    volumes:
+      - ./kafka-data:/var/lib/kafka/data
+    networks:
+      - main-bridge
+    restart: unless-stopped
+    
+networks:
+  main-bridge:
+    external: true

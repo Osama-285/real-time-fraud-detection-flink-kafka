@@ -1,0 +1,24 @@
+FROM flink:2.0.0
+
+USER root
+
+RUN apt-get update && \
+    apt-get install -y python3.10 python3.10-venv python3.10-distutils curl && \
+    curl -sS https://bootstrap.pypa.io/get-pip.py | python3.10 && \
+    ln -sf /usr/bin/python3.10 /usr/bin/python && \
+    ln -sf /usr/bin/pip3 /usr/bin/pip
+
+RUN pip install apache-flink==2.0.0
+
+ENV PYTHONPATH=/opt/flink/python
+
+WORKDIR /opt/flink
+
+COPY custom_lib/*.jar /opt/flink/lib/
+COPY jobs/ /opt/flink/jobs/
+
+EXPOSE 8081 6123 6124
+
+WORKDIR /opt/flink
+
+CMD ["bash"]
