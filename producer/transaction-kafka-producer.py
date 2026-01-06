@@ -37,7 +37,7 @@ def get_event_time(card_id):
         return last_card_activity[card_id]["time"] + timedelta(
             seconds=random.randint(1, 5)
         )
-    return datetime.utcnow()
+    return datetime.now(timezone.utc)
 
 
 def generate_ip():
@@ -89,7 +89,7 @@ def generate_transaction():
         "ip_address": generate_ip(),
         "location": location,
         "event_type": fraud_type,
-        "timestamp": now.replace(microsecond=0).isoformat() + "Z"
+        "timestamp": now.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     }
 
     last_card_activity[card_id] = {
@@ -103,6 +103,10 @@ def shutdown(sig, frame):
     global running
     running = False
     
+def delivery_report(err, msg):
+    if err:
+        print(f" Delivery failed: {err}")
+
 def main():
     producer = Producer(
         {
@@ -122,7 +126,13 @@ def main():
 
         producer.produce(
             topic=TOPIC_NAME,
-            value=json.dumps(tx)
+            key=tx["card_id"],
+            value=json.dumps(tx),
+            headers={
+                "event_type": fraud,
+                "schema_version": "1.0",
+            },
+            on_delivery=delivery_report,
         )
 
         producer.poll(0)
