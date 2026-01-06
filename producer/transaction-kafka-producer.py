@@ -12,6 +12,8 @@ fake = Faker()
 random.seed(42)
 
 running = True
+BOOTSTRAP_SERVERS = "localhost:9094"
+TOPIC_NAME = "transactions"
 
 customers = {
     "Alice": ["card_1", "card_2"],
@@ -96,3 +98,40 @@ def generate_transaction():
     }
 
     return transaction, fraud_type
+
+def shutdown(sig, frame):
+    global running
+    running = False
+    
+def main():
+    producer = Producer(
+        {
+            "bootstrap.servers": BOOTSTRAP_SERVERS,
+            "acks":"1",
+            "linger.ms":10
+        }
+    )
+    
+    signal.signal(signal.SIGINT, shutdown)
+    signal.signal(signal.SIGTERM, shutdown)
+
+    print("Kafka producer started")
+
+    while running:
+        tx, fraud = generate_transaction()
+
+        producer.produce(
+            topic=TOPIC_NAME,
+            value=json.dumps(tx)
+        )
+
+        producer.poll(0)
+
+        print(f"[{fraud}] {tx['card_id']} | ${tx['amount']} | {tx['location']}")
+
+        time.sleep(0.4 if fraud != "VELOCITY" else 0.15)
+
+    producer.flush()
+    
+if __name__ == "__main__":
+    main()
