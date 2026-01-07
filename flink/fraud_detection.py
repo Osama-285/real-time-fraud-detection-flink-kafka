@@ -52,6 +52,7 @@ def haversine(
 
 
 class FraudDetector(KeyedProcessFunction):
+
     def open(self, ctx: RuntimeContext):
         ttl = (
             StateTtlConfig.new_builder(Time.minutes(10))
@@ -59,12 +60,129 @@ class FraudDetector(KeyedProcessFunction):
             .build()
         )
 
-        tx_desc = ListStateDescriptor("txs", Types.TUPLE([Types.LONG(), Types.FLOAT()]))
+        tx_desc = ListStateDescriptor("txs", Types.LONG())
         tx_desc.enable_time_to_live(ttl)
         self.tx_state = ctx.get_list_state(tx_desc)
+
         loc_desc = ValueStateDescriptor("loc", Types.STRING())
         loc_desc.enable_time_to_live(ttl)
         self.last_loc = ctx.get_state(loc_desc)
+
         time_desc = ValueStateDescriptor("time", Types.LONG())
         time_desc.enable_time_to_live(ttl)
         self.last_time = ctx.get_state(time_desc)
+
+    def process_element(self, value, ctx):
+        score = 0
+
+        event_id = value[1]
+        card_id = value[4]
+        amount = float(value[7])
+        location = value[9]
+        ip = value[10]
+        ts = value[12]
+
+        event_time = int(datetime.fromisoformat(ts.replace("Z", "")).timestamp() * 1000)
+
+        if amount > MAX_AMOUNT:
+            score += 40
+
+        history = list(self.tx_state.get())
+        history = [t for t in history if event_time - t <= RAPID_WINDOW_MS]
+        history.append(event_time)
+        self.tx_state.update(history)
+
+        if len(history) >= RAPID_TX_COUNT:
+            score += 30
+
+        last_loc = self.last_loc.value()
+        last_time = self.last_time.value()
+
+        if (
+            last_loc
+            and last_time
+            and location != last_loc
+            and event_time - last_time <= IMPOSSIBLE_TRAVEL_MS
+            and location in LOCATION_COORDS
+            and last_loc in LOCATION_COORDS
+        ):
+            dist = haversine(LOCATION_COORDS[last_loc], LOCATION_COORDS[location])
+            if dist > 500:
+                score += 50
+
+        result = {
+            "event_id": event_id,
+            "card_id": card_id,
+            "amount": amount,
+            "location": location,
+            "ip_address": ip,
+            "score": score,
+            "status": "FRAUD" if score >= 40 else "LEGIT",
+            "severity": "HIGH" if score >= 70 else "NONE",
+            "event_time": ts,
+        }
+
+        self.last_loc.update(location)
+        self.last_time.update(event_time)
+
+        yield json.dumps(result)
+
+
+def main():
+    env = StreamExecutionEnvironment.get_execution_environment()
+    env.set_parallelism(4)
+
+    kafka = (
+        KafkaSource.builder()
+        .set_bootstrap_servers("broker2:29094")
+        .set_topics("transactions")
+        .set_group_id("fraud-v3")
+        .set_starting_offsets(KafkaOffsetsInitializer.earliest())
+        .set_value_only_deserializer(
+            JsonRowDeserializationSchema.builder()
+            .type_info(
+                Types.ROW_NAMED(
+                    [
+                        "schema_version",
+                        "event_id",
+                        "transaction_id",
+                        "customer_id",
+                        "card_id",
+                        "merchant_id",
+                        "merchant_category",
+                        "amount",
+                        "currency",
+                        "location",
+                        "ip_address",
+                        "event_type",
+                        "timestamp",
+                    ],
+                    [
+                        Types.STRING(),
+                        Types.STRING(),
+                        Types.STRING(),
+                        Types.STRING(),
+                        Types.STRING(),
+                        Types.STRING(),
+                        Types.STRING(),
+                        Types.DOUBLE(),
+                        Types.STRING(),
+                        Types.STRING(),
+                        Types.STRING(),
+                        Types.STRING(),
+                        Types.STRING(),
+                    ],
+                )
+            )
+            .build()
+        )
+        .build()
+    )
+
+    wm = WatermarkStrategy.for_bounded_out_of_orderness(
+        Duration.of_seconds(5)
+    ).with_timestamp_assigner(
+        lambda e, ts: int(
+            datetime.fromisoformat(e[12].replace("Z", "")).timestamp() * 1000
+        )
+    )
