@@ -137,7 +137,7 @@ def main():
         .set_bootstrap_servers("broker2:29094")
         .set_topics("transactions")
         .set_group_id("fraud-v3")
-        .set_starting_offsets(KafkaOffsetsInitializer.earliest())
+        .set_starting_offsets(KafkaOffsetsInitializer.latest())
         .set_value_only_deserializer(
             JsonRowDeserializationSchema.builder()
             .type_info(
@@ -187,7 +187,7 @@ def main():
         )
     )
     stream = env.from_source(kafka, wm, "kafka-source")
-    processed = stream.key_by(lambda e: e[2]).process(
+    processed = stream.key_by(lambda e: e[4]).process(
         FraudDetector(), output_type=Types.STRING()
     )
     fraud = processed.filter(lambda x: json.loads(x)["status"] == "FRAUD").map(
@@ -197,10 +197,10 @@ def main():
     legit = processed.filter(lambda x: json.loads(x)["status"] == "LEGIT").map(
         lambda x: f"LEGIT | {x}"
     )
-    env.execute("real-time-fraud-detection")
 
     fraud.print()
     legit.print()
+    env.execute("real-time-fraud-detection")
 
 if __name__ == "__main__":
     main()
