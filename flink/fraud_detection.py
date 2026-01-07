@@ -186,3 +186,21 @@ def main():
             datetime.fromisoformat(e[12].replace("Z", "")).timestamp() * 1000
         )
     )
+    stream = env.from_source(kafka, wm, "kafka-source")
+    processed = stream.key_by(lambda e: e[2]).process(
+        FraudDetector(), output_type=Types.STRING()
+    )
+    fraud = processed.filter(lambda x: json.loads(x)["status"] == "FRAUD").map(
+        lambda x: f"FRAUD | {x}"
+    )
+
+    legit = processed.filter(lambda x: json.loads(x)["status"] == "LEGIT").map(
+        lambda x: f"LEGIT | {x}"
+    )
+    env.execute("real-time-fraud-detection")
+
+    fraud.print()
+    legit.print()
+
+if __name__ == "__main__":
+    main()
