@@ -34,7 +34,10 @@ LOCATION_COORDS = {
 FRAUD_TAG = OutputTag("fraud", Types.STRING())
 ALERT_TAG = OutputTag("alerts", Types.MAP(Types.STRING(), Types.STRING()))
 
-def haversine(a,b):     #  fuction to determines the great-circle distance between two points
+
+def haversine(
+    a, b
+):  #  fuction to determines the great-circle distance between two points
     lat1, lon1 = a
     lat2, lon2 = b
     dlat = math.radians(lat2 - lat1)
@@ -46,3 +49,22 @@ def haversine(a,b):     #  fuction to determines the great-circle distance betwe
         * math.sin(dlon / 2) ** 2
     )
     return 2 * EARTH_RADIUS_KM * math.atan2(math.sqrt(x), math.sqrt(1 - x))
+
+
+class FraudDetector(KeyedProcessFunction):
+    def open(self, ctx: RuntimeContext):
+        ttl = (
+            StateTtlConfig.new_builder(Time.minutes(10))
+            .set_update_type(StateTtlConfig.UpdateType.OnCreateAndWrite)
+            .build()
+        )
+
+        tx_desc = ListStateDescriptor("txs", Types.TUPLE([Types.LONG(), Types.FLOAT()]))
+        tx_desc.enable_time_to_live(ttl)
+        self.tx_state = ctx.get_list_state(tx_desc)
+        loc_desc = ValueStateDescriptor("loc", Types.STRING())
+        loc_desc.enable_time_to_live(ttl)
+        self.last_loc = ctx.get_state(loc_desc)
+        time_desc = ValueStateDescriptor("time", Types.LONG())
+        time_desc.enable_time_to_live(ttl)
+        self.last_time = ctx.get_state(time_desc)
