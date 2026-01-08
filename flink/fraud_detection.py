@@ -37,7 +37,7 @@ ALERT_TAG = OutputTag("alerts", Types.MAP(Types.STRING(), Types.STRING()))
 
 def haversine(
     a, b
-):  #  fuction to determines the great-circle distance between two points
+):
     lat1, lon1 = a
     lat2, lon2 = b
     dlat = math.radians(lat2 - lat1)

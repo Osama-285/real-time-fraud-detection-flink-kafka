@@ -84,12 +84,10 @@ class FraudDetector(KeyedProcessFunction):
 
         event_time = int(datetime.fromisoformat(ts.replace("Z", "")).timestamp() * 1000)
 
-        # Rule 1: High amount
         if amount > MAX_AMOUNT:
             score += 40
             reasons.append("HIGH_AMOUNT")
 
-        # Rule 2: Velocity
         history = list(self.tx_state.get())
         history = [t for t in history if event_time - t <= RAPID_WINDOW_MS]
         history.append(event_time)
@@ -99,7 +97,6 @@ class FraudDetector(KeyedProcessFunction):
             score += 30
             reasons.append("RAPID_TRANSACTIONS")
 
-        # Rule 3: Impossible travel
         last_loc = self.last_loc.value()
         last_time = self.last_time.value()
 
@@ -128,18 +125,15 @@ class FraudDetector(KeyedProcessFunction):
             "status": "FRAUD" if score >= 40 else "LEGIT",
         }
 
-        # Update state
+
         self.last_loc.update(location)
         self.last_time.update(event_time)
 
-        # Side outputs
         yield json.dumps(result)
 
-    # ✅ Fraud side output
         if score >= 40:
             yield FRAUD_ALERT_TAG, json.dumps(result)
-
-        # ✅ Risk audit side output (ALL events)
+            
         yield RISK_AUDIT_TAG, json.dumps(
             {
                 "card_id": card_id,
@@ -149,7 +143,6 @@ class FraudDetector(KeyedProcessFunction):
             }
         )
 
-        # Main stream
         yield json.dumps(result)
 
 
